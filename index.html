@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Пайплайн разбора анализов</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --blue:#1098D4; --blue-2:#63BCE3; --ink:#05131A; --soft:#EDF8FC; --err:#d10714;
+  --bg:#fafafa; --surface:#ffffff; --text:#05131A; --muted:#4a5a63; --line:#d7e6ee;
+  --chip:#EDF8FC; --code-bg:#f3f8fb; --grad:linear-gradient(135deg,#1098D4,#63BCE3);
+  --warn-bg:#fff4f4; --shadow:0 1px 2px rgba(5,19,26,.05),0 6px 24px rgba(5,19,26,.06);
+  --font:"Montserrat",Arial,Helvetica,sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#05131A; --surface:#0b1f29; --text:#ffffff; --muted:#a9bcc6; --line:#1c3a49;
+    --chip:#10303f; --code-bg:#081820; --warn-bg:#2a1013; --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 24px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#05131A; --surface:#0b1f29; --text:#ffffff; --muted:#a9bcc6; --line:#1c3a49;
+  --chip:#10303f; --code-bg:#081820; --warn-bg:#2a1013; --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 24px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.6;margin:0;padding:0 16px}
+.wrap{max-width:1080px;margin:0 auto;padding-block:32px 80px}
+h1,h2,h3{font-weight:600;text-wrap:balance;line-height:1.25;margin:0}
+h1{font-size:clamp(26px,4.4vw,40px);letter-spacing:-.01em}
+h2{font-size:24px;margin-bottom:6px}
+h3{font-size:16px}
+p{margin:0}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+code{background:var(--chip);padding:1px 6px;border-radius:5px;overflow-wrap:anywhere}
+a{color:inherit}
+.muted{color:var(--muted)}
+.lead{font-size:15.5px;max-width:68ch;color:var(--muted)}
+
+/* hero */
+.hero{display:grid;gap:18px;padding-bottom:28px;border-bottom:1px solid var(--line)}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.06em;color:var(--muted)}
+.eyebrow b{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--blue);margin-right:8px;vertical-align:1px}
+.stats{display:flex;flex-wrap:wrap;gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-width:0}
+.stat strong{display:block;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted)}
+
+/* nav */
+nav.toc{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;gap:6px;overflow-x:auto;padding:12px 0;margin-bottom:8px;border-bottom:1px solid var(--line);scrollbar-width:none}
+nav.toc a{flex:none;text-decoration:none;font-weight:600;font-size:13px;padding:7px 14px;border-radius:999px;background:var(--surface);border:1px solid var(--line)}
+nav.toc a:hover,nav.toc a:focus-visible{border-color:var(--blue);outline:none}
+
+section{padding-top:44px;scroll-margin-top:60px}
+.sec-head{display:grid;gap:6px;margin-bottom:22px}
+
+/* architecture */
+.arch{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px}
+.arch svg{display:block;min-width:760px;width:100%;height:auto}
+.arch text{font-family:var(--font);fill:var(--text)}
+.arch .sub{fill:var(--muted);font-size:11px}
+.arch .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.arch .box.acc{fill:var(--soft);stroke:var(--blue)}
+.arch .edge{stroke:var(--blue);stroke-width:1.6;fill:none}
+.arch .edge.dash{stroke-dasharray:5 4}
+.arch .elab{fill:var(--muted);font-size:10.5px}
+.arch .arrow{fill:var(--blue)}
+:root[data-theme="dark"] .arch .box.acc{fill:#10303f}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .arch .box.acc{fill:#10303f}}
+
+/* pipeline */
+.phase{margin-top:26px}
+.phase-label{display:flex;align-items:center;gap:10px;font-weight:600;font-size:13px;color:var(--muted);margin-bottom:12px}
+.phase-label::after{content:"";flex:1;height:1px;background:var(--line)}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.step{display:grid;grid-template-columns:44px 1fr;gap:0 16px;position:relative}
+.step .dot{grid-row:1/3;display:flex;flex-direction:column;align-items:center}
+.step .num{width:36px;height:36px;border-radius:50%;background:var(--grad);color:#fff;font-weight:600;display:grid;place-items:center;font-size:14px;flex:none;font-variant-numeric:tabular-nums}
+.step .rail{flex:1;width:2px;background:var(--line);margin:4px 0}
+.step:last-child .rail{visibility:hidden}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:14px;display:grid;gap:10px}
+.card-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;justify-content:space-between}
+.file{font-family:var(--mono);font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
+.card ul{margin:0;padding-left:18px;display:grid;gap:4px}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--chip)}
+.risk{border-left:3px solid var(--err);background:var(--warn-bg);padding:8px 12px;border-radius:0 8px 8px 0;font-size:13px}
+.note{border-left:3px solid var(--blue);background:var(--chip);padding:8px 12px;border-radius:0 8px 8px 0;font-size:13px}
+
+/* drops grid */
+.drops{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.drop{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px}
+.drop b{font-family:var(--mono);font-size:12px;font-weight:500;display:block;margin-bottom:2px}
+
+/* prompt */
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.tab{font:600 13px var(--font);color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px;cursor:pointer}
+.tab[aria-selected="true"]{background:var(--grad);color:#fff;border-color:transparent}
+.tab:focus-visible,.btn:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.msg{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface);margin-bottom:14px}
+.msg-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line)}
+.role{font-family:var(--mono);font-size:12px;font-weight:500;padding:2px 8px;border-radius:6px;background:var(--chip)}
+.btn{font:600 12.5px var(--font);color:#fff;background:var(--grad);border:0;border-radius:999px;padding:7px 14px;cursor:pointer}
+.btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line)}
+pre.code{margin:0;padding:14px 16px;background:var(--code-bg);font-family:var(--mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;max-height:560px;overflow:auto}
+pre.code.short{max-height:none}
+.hl{background:rgba(16,152,212,.18);border-radius:3px}
+details.more{border:1px solid var(--line);border-radius:14px;background:var(--surface);margin-bottom:14px}
+details.more summary{cursor:pointer;padding:12px 16px;font-weight:600}
+details.more[open] summary{border-bottom:1px solid var(--line)}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:14px}
+.kv div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kv span{display:block;font-size:12px;color:var(--muted)}
+.kv b{font-family:var(--mono);font-weight:500;font-size:12.5px;overflow-wrap:anywhere}
+
+/* catalog */
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:18px}
+.formula{font-family:var(--mono);font-size:13px;background:var(--code-bg);border-radius:8px;padding:10px 12px;overflow-x:auto}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center}
+.filters input[type=search]{flex:1 1 260px;min-width:0;font:400 14px var(--font);color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.filters select{font:500 13px var(--font);color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 10px}
+.count{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--surface);max-height:640px;overflow-y:auto}
+table{border-collapse:collapse;width:100%;min-width:720px;font-size:13px}
+th{position:sticky;top:0;background:var(--surface);text-align:left;font-weight:600;font-size:12px;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line);z-index:1}
+td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.name{font-weight:600;min-width:200px}
+.alias{display:inline-block;font-size:12px;background:var(--chip);border-radius:6px;padding:1px 7px;margin:0 4px 4px 0}
+.unit{display:inline-block;font-family:var(--mono);font-size:11.5px;border:1px solid var(--line);border-radius:6px;padding:0 6px;margin:0 4px 4px 0}
+.pill{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--chip)}
+.pill.no{background:var(--warn-bg);color:var(--err)}
+.pill.null{border:1px dashed var(--line);color:var(--muted)}
+mark{background:rgba(99,188,227,.35);color:inherit;border-radius:3px}
+
+/* findings */
+.find{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.find .card{margin:0;border-top:3px solid var(--err)}
+.find .card.info{border-top-color:var(--blue)}
+
+@media (max-width:560px){
+  .step{grid-template-columns:36px 1fr;gap:0 10px}
+  .step .num{width:30px;height:30px;font-size:13px}
+  .card{padding:14px}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+html{scroll-behavior:smooth}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header class="hero">
+  <div class="eyebrow"><b></b>Bioniq, сервис bioniq-pdf-ocr</div>
+  <h1>Как PDF с анализами превращается в список показателей</h1>
+  <p class="lead">Сервис принимает PDF с результатами анализов из любой лаборатории и возвращает единый список показателей: название, значение, единицы, норма, комментарий. Страницы читает нейросеть с «зрением» (Qwen3-VL), а код вокруг неё проверяет, чистит и приводит ответ к справочнику.</p>
+  <div class="stats">
+    <div class="stat"><strong>~95,7%</strong><span>анализов находит на эталонах</span></div>
+    <div class="stat"><strong>290</strong><span>анализов в справочнике</span></div>
+    <div class="stat"><strong>869</strong><span>вариантов написания</span></div>
+    <div class="stat"><strong>v29</strong><span>текущая версия промпта</span></div>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Разделы">
+  <a href="#arch">Устройство</a>
+  <a href="#pipeline">Пайплайн</a>
+  <a href="#prompt">Промпт</a>
+  <a href="#catalog">Справочник</a>
+  <a href="#findings">Что стоит знать</a>
+</nav>
+
+<!-- ARCH -->
+<section id="arch">
+  <div class="sec-head">
+    <h2>Из чего состоит сервис</h2>
+    <p class="muted">API только принимает файлы и отдаёт результаты. Всю тяжёлую работу делает отдельный процесс Worker, который берёт задачи из очереди в базе.</p>
+  </div>
+  <div class="arch">
+    <svg viewBox="0 0 960 330" role="img" aria-label="Схема: клиент, API, база и диск, Worker, нейросеть, справочник">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="arrow" d="M0,0 L10,5 L0,10 z"/></marker>
+      </defs>
+      <!-- client -->
+      <rect class="box" x="10" y="120" width="140" height="84" rx="12"/>
+      <text x="80" y="156" text-anchor="middle" font-weight="600" font-size="14">Клиент</text>
+      <text class="sub" x="80" y="176" text-anchor="middle">система Bioniq</text>
+      <!-- api -->
+      <rect class="box acc" x="220" y="120" width="160" height="84" rx="12"/>
+      <text x="300" y="152" text-anchor="middle" font-weight="600" font-size="14">API</text>
+      <text class="sub" x="300" y="171" text-anchor="middle">FastAPI, токен</text>
+      <text class="sub" x="300" y="187" text-anchor="middle">X-API-Token</text>
+      <!-- db -->
+      <rect class="box" x="450" y="30" width="190" height="84" rx="12"/>
+      <text x="545" y="62" text-anchor="middle" font-weight="600" font-size="14">PostgreSQL</text>
+      <text class="sub" x="545" y="81" text-anchor="middle">очередь задач</text>
+      <text class="sub" x="545" y="97" text-anchor="middle">и готовые результаты</text>
+      <!-- disk -->
+      <rect class="box" x="450" y="212" width="190" height="84" rx="12"/>
+      <text x="545" y="244" text-anchor="middle" font-weight="600" font-size="14">Диск</text>
+      <text class="sub" x="545" y="263" text-anchor="middle">.data/pdfs/</text>
+      <text class="sub" x="545" y="279" text-anchor="middle">&lt;отпечаток sha256&gt;.pdf</text>
+      <!-- worker -->
+      <rect class="box acc" x="710" y="120" width="120" height="84" rx="12"/>
+      <text x="770" y="152" text-anchor="middle" font-weight="600" font-size="14">Worker</text>
+      <text class="sub" x="770" y="171" text-anchor="middle">опрос раз</text>
+      <text class="sub" x="770" y="187" text-anchor="middle">в 5 секунд</text>
+      <!-- vlm -->
+      <rect class="box" x="850" y="30" width="100" height="84" rx="12"/>
+      <text x="900" y="62" text-anchor="middle" font-weight="600" font-size="13">Нейросеть</text>
+      <text class="sub" x="900" y="81" text-anchor="middle">Qwen3-VL</text>
+      <text class="sub" x="900" y="97" text-anchor="middle">OpenRouter / GPU</text>
+      <!-- catalog -->
+      <rect class="box" x="850" y="212" width="100" height="84" rx="12"/>
+      <text x="900" y="244" text-anchor="middle" font-weight="600" font-size="13">Справочник</text>
+      <text class="sub" x="900" y="263" text-anchor="middle">etalon_</text>
+      <text class="sub" x="900" y="279" text-anchor="middle">catalog.json</text>
+      <!-- edges -->
+      <path class="edge" d="M150,150 H218" marker-end="url(#ah)"/>
+      <text class="elab" x="184" y="142" text-anchor="middle">PDF</text>
+      <path class="edge dash" d="M218,178 H152" marker-end="url(#ah)"/>
+      <text class="elab" x="184" y="196" text-anchor="middle">job_id</text>
+      <path class="edge" d="M380,140 C415,140 415,72 448,72" marker-end="url(#ah)"/>
+      <text class="elab" x="398" y="92" text-anchor="middle">задача</text>
+      <path class="edge" d="M380,184 C415,184 415,254 448,254" marker-end="url(#ah)"/>
+      <text class="elab" x="398" y="240" text-anchor="middle">файл</text>
+      <path class="edge" d="M640,72 C675,72 675,140 708,140" marker-end="url(#ah)"/>
+      <text class="elab" x="690" y="98" text-anchor="middle">берёт</text>
+      <path class="edge" d="M640,254 C675,254 675,184 708,184" marker-end="url(#ah)"/>
+      <text class="elab" x="690" y="240" text-anchor="middle">читает</text>
+      <path class="edge" d="M830,140 C842,140 842,72 848,72" marker-end="url(#ah)"/>
+      <path class="edge" d="M830,184 C842,184 842,254 848,254" marker-end="url(#ah)"/>
+      <path class="edge dash" d="M710,128 C680,20 660,20 642,52" marker-end="url(#ah)"/>
+      <text class="elab" x="690" y="22" text-anchor="middle">результат</text>
+    </svg>
+  </div>
+</section>
+
+<!-- PIPELINE -->
+<section id="pipeline">
+  <div class="sec-head">
+    <h2>Пайплайн: путь одного PDF</h2>
+    <p class="muted">Три фазы: приём, чтение нейросетью, проверка и чистка. Под каждым шагом указан файл в репозитории.</p>
+  </div>
+
+  <div class="phase">
+    <div class="phase-label">Приём и очередь</div>
+    <ol class="steps">
+      <li class="step"><div class="dot"><div class="num">1</div><div class="rail"></div></div>
+        <div class="card">
+          <div class="card-top"><h3>Клиент отправляет PDF</h3><span class="file">app/api/routes/extract.py</span></div>
+          <ul>
+            <li><code>POST /v1/extract/async</code> с файлом, своим <code>request_id</code> и токеном в заголовке <code>X-API-Token</code>. Без правильного токена ответ 403.</li>
+            <li>API считает sha256, это уникальный «отпечаток» файла, и сохраняет PDF на диск как <code>&lt;sha256&gt;.pdf</code>, если такого файла ещё нет.</li>
+            <li>Клиент сразу получает <code>job_id</code> и статус <code>pending</code>: ждать разбора не нужно.</li>
+          </ul>
+        </div></li>
+      <li class="step"><div class="dot"><div class="num">2</div><div class="rail"></div></div>
+        <div class="card">
+          <div class="card-top"><h3>Проверка кэша</h3><span class="file">app/jobs/store.py</span></div>
+          <ul>
+            <li>Этот файл уже разбирали успешно: сразу возвращается готовая задача, нейросеть не вызывается.</li>
+            <li>Этот файл прямо сейчас в работе: возвращается та же задача, дубль не создаётся.</li>
+            <li>Иначе в базе появляется новая задача со статусом <code>pending</code>.</li>
+          </ul>
+          <div class="note">Чтобы два одновременных запроса с одним файлом не создали две задачи, на время проверки ставится блокировка по отпечатку файла.</div>
+        </div></li>
+      <li class="step"><div class="dot"><div class="num">3</div><div class="rail"></div></div>
+        <div class="card">
+          <div class="card-top"><h3>Worker забирает задачу</h3><span class="file">app/worker/main.py</span></div>
+          <ul>
+            <li>Раз в 5 секунд Worker ищет самую старую задачу <code>pending</code> и переводит её в <code>running</code>. Если Worker'ов несколько, одна задача достанется только одному.</li>
+            <li>При старте Worker возвращает в очередь задачи, которые висят в <code>running</code> дольше 120 минут: это следы упавшего процесса.</li>
+          </ul>
+        </div></li>
+    </ol>
+  </div>
+
+  <div class="phase">
+    <div class="phase-label">Чтение нейросетью</div>
+    <ol class="steps" start="4">
+      <li class="step"><div class="dot"><div class="num">4</div><div class="rail"></div></div>
+        <div class="card">
+          <div class="card-top"><h3>Подготовка документа</h3><span class="file">app/extraction/pipeline/document_prep.py</span></div>
+          <ul>
+            <li>Проверка, что это PDF: расширение <code>.pdf</code>, файл не пустой, начинается с <code>%PDF</code>. Иначе задача сразу <code>failed</code>.</li>
+            <li>Из PDF вытаскивается текстовый слой. Нейросети он не передаётся, он нужен на шаге 7, чтобы ловить выдумки.</li>
+            <li>Дальше один из двух режимов, выбирается настройкой <code>VLM_INPUT_MODE</code>:</li>
+          </ul>
+          <div class="tags"><span class="tag">pdf: весь файл одним запросом</span><span class="tag">image: каждая страница картинкой 180 dpi, отдельным запросом</span></div>
+          <div class="note">Какой режим на проде, по репозиторию не видно. Своя модель на llama.cpp принимает только картинки, поэтому скорее всего <code>image</code>. От режима зависит, работают ли подсказки из шага 5.</div>
+        </div></li>
+      <li class="step"><div class="dot"><div class="num">5</div><div class="rail"></div></div>
+        <div class="card">
+          <div class="card-top"><h3>Подсказки из самого PDF</h3><span class="file">app/extraction/pdf_ref_hint.py</span></div>
+          <p>У Инвитро и ХромсистемсЛаб результаты нарисованы цветными шкалами, а цифры нормы стоят над шкалой, не в строке. Нейросеть часто берёт норму от соседа.</p>
+          <ul>
+            <li>Такие страницы узнаются по трём и более широким картинкам-шкалам и по названию лаборатории в тексте.</li>
+            <li>Код сам по координатам слов определяет, какая норма к какому анализу, и после ответа нейросети подменяет её нормы своими.</li>
+            <li>Многоуровневые шкалы («&lt;10 выраженный дефицит; 10–30 недостаточность…») дописываются в <code>comments</code>.</li>
+          </ul>
+          <div class="tags"><span class="tag">только в режиме image</span><span class="tag">пока одна раскладка: Инвитро и ХромсистемсЛаб</span></div>
+        </div></li>
+      <li class="step"><div class="dot"><div class="num">6</div><div class="rail"></div></div>
+        <div class="card">
+          <div class="card-top"><h3>Запрос в нейросеть</h3><span class="file">app/extraction/pipeline/vlm_inference.py</span></div>
+          <ul>
+            <li>Для каждой страницы уходит запрос в формате OpenAI <code>/chat/completions</code>, одновременно не больше двух.</li>
+            <li>Внутри: промпт с правилами и списком 290 названий из справочника, картинка страницы и жёсткая схема ответа (<a href="#prompt">подробнее</a>).</li>
+            <li><code>temperature = 0</code> ради стабильности, до 4096 токенов ответа, таймаут 600 секунд.</li>
+            <li>Если JSON пришёл оборванным, код пытается дописать недостающие скобки и кавычки. Потом ответы всех страниц склеиваются: данные пациента, дата и лаборатория берутся с первой страницы, где нашлись.</li>
+          </ul>
+          <div class="risk">Если хотя бы одна страница упала с ошибкой, весь документ получает <code>failed</code>. Частичных результатов не бывает.</div>
+        </div></li>
+    </ol>
+  </div>
+
+  <div class="phase">
+    <div class="phase-label">Проверка и чистка ответа</div>
+    <ol class="steps" start="7">
+      <li class="step"><div class="dot"><div class="num">7</div><div class="rail"></div></div>
+        <div class="card">
+          <div class="card-top"><h3>Фильтр мусора и выдумок</h3><span class="file">app/extraction/validate.py</span></div>
+          <p>Каждая строка ответа проверяется. Выброшенные считаются по причинам и попадают в итоговую оценку качества.</p>
+          <div class="drops">
+            <div class="drop"><b>empty</b>нет названия или значения</div>
+            <div class="drop"><b>noise</b>в названии «интерпретация», «метод», «пациент», «страница» и т.п.</div>
+            <div class="drop"><b>numeric_sanity</b>в значении нет цифр, и оно похоже на предложение</div>
+            <div class="drop"><b>anchoring</b>числа значения нет в тексте PDF, или ни одного слова названия нет в тексте (с учётом вариантов написания из справочника)</div>
+          </div>
+          <div class="risk">У сканов нет текстового слоя, поэтому для них защита от выдумок не работает: проходит всё, что вернула модель.</div>
+        </div></li>
+      <li class="step"><div class="dot"><div class="num">8</div><div class="rail"></div></div>
+        <div class="card">
+          <div class="card-top"><h3>Приведение к справочнику</h3><span class="file">app/extraction/name_normalizer.py</span></div>
+          <ul>
+            <li><b>Заголовки разделов выкидываются.</b> Если одно «название» встречается с 4 и больше разными значениями, это заголовок. Плюс есть список известных: «клинический анализ крови», «тяжелые металлы» и др.</li>
+            <li><b>Название сопоставляется со справочником</b> и заменяется каноническим, если похожесть ≥ 0,60. <a href="#catalog">Как это считается</a>.</li>
+            <li><b>Чистка единиц.</b> У индексов и соотношений единиц не бывает, лишняя стирается. Единица, противоречащая справочнику, заменяется, только если в том же документе есть такой же анализ с тем же значением и правильной единицей.</li>
+          </ul>
+        </div></li>
+      <li class="step"><div class="dot"><div class="num">9</div><div class="rail"></div></div>
+        <div class="card">
+          <div class="card-top"><h3>Нормализация значений и норм</h3><span class="file">app/extraction/post_process.py, normalize_utils.py</span></div>
+          <ul>
+            <li><b>Значение:</b> убираются флаги <code>(H)</code> <code>(L)</code> <code>*</code> <code>↑↓</code>, запятая меняется на точку, лишние нули отбрасываются: <code>7,50</code> → <code>7.5</code>, <code>&lt; 0,100</code> → <code>&lt;0.1</code>.</li>
+            <li><b>Норма:</b> <code>0,0 - 5,0</code> → <code>0-5</code>, «менее 200» → <code>&lt;200</code>, одиночное <code>5</code> или <code>&lt;5</code> → <code>0-5</code>. Заглушки вроде «см. комментарий» удаляются.</li>
+            <li>Норма с текстом и цифрами («мужчины: 1.7–8.6», шкалы риска) не теряется, а переносится в <code>comments</code>.</li>
+          </ul>
+        </div></li>
+      <li class="step"><div class="dot"><div class="num">10</div><div class="rail"></div></div>
+        <div class="card">
+          <div class="card-top"><h3>Удаление дублей</h3><span class="file">app/extraction/post_process.py</span></div>
+          <p>Дублями считаются строки с одинаковыми названием, значением (без учёта <code>&lt;</code> и <code>&gt;</code>) и единицей: например, анализ попал на две страницы. Остаётся запись со знаком <code>&lt;</code> или <code>&gt;</code> и с более компактной нормой, а <code>comments</code> и номера страниц объединяются. Так норма, разорванная переносом страницы, собирается обратно.</p>
+        </div></li>
+      <li class="step"><div class="dot"><div class="num">11</div><div class="rail"></div></div>
+        <div class="card">
+          <div class="card-top"><h3>Сохранение и выдача</h3><span class="file">app/jobs/store.py</span></div>
+          <ul>
+            <li>Считается оценка качества, например <code>87/95 accepted | drops: anchoring=3, duplicate=5 | vlm: стр.3 плохо читается</code>.</li>
+            <li>Результат пишется в базу, задача переходит в <code>done</code>. Запись проходит, только если задача ещё <code>running</code>, поэтому «воскресший» старый Worker чужой результат не перезапишет.</li>
+            <li>Клиент опрашивает <code>GET /v1/extract/{job_id}</code>, пока не придёт <code>done</code> или <code>failed</code>. В ответе: <code>results</code>, <code>patient_info</code>, <code>laboratory</code>, <code>document_date</code>, <code>parsing_quality</code> и <code>raw_vlm</code>, сырой ответ модели до всех исправлений.</li>
+          </ul>
+        </div></li>
+    </ol>
+  </div>
+</section>
+
+<!-- PROMPT -->
+<section id="prompt">
+  <div class="sec-head">
+    <h2>Что говорят нейросети</h2>
+    <p class="muted">Промпт собирается в коде из шаблона (версия <span class="mono">v29</span>) и уходит в каждом запросе. Около 27 тысяч символов: примерно 70 строк правил и список всех названий из справочника.</p>
+  </div>
+  <div class="kv">
+    <div><span>Адрес</span><b>POST /chat/completions</b></div>
+    <div><span>Модель по умолчанию</span><b>Qwen3-VL</b></div>
+    <div><span>Параметры</span><b>temperature 0, max_tokens 4096</b></div>
+    <div><span>Формат ответа</span><b>json_schema, strict</b></div>
+  </div>
+  <div class="two">
+    <div class="card">
+      <h3>Из чего состоит запрос</h3>
+      <ul>
+        <li><b>Системный промпт</b> на русском: какие поля извлекать и по каким правилам.</li>
+        <li><b>Короткое сообщение</b>: «Извлеки данные из этого лабораторного исследования. Ответь сразу JSON.»</li>
+        <li><b>Картинка страницы</b> (или весь PDF). Если страниц в запросе несколько, перед каждой стоит подпись с номером страницы.</li>
+        <li><b>Схема ответа</b>: данные пациента, дата, лаборатория, список анализов и самооценка качества разбора.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Главные правила промпта</h3>
+      <ul>
+        <li>Название, значение, единицы и норму брать только из одной и той же строки, не от соседа.</li>
+        <li>Знаки <code>&lt;</code> и <code>&gt;</code> в значении сохранять, флаги (H), (L), стрелки убирать.</li>
+        <li>В норму класть только один компактный диапазон. Норму по полу, возрасту, фазе цикла и многоуровневые шкалы класть в комментарий.</li>
+        <li>Заголовки разделов, дисклеймеры и прошлые результаты («История») анализами не считать.</li>
+        <li>Не путать похожие анализы: MCV и MPV, витамины B2 и B12, RDW-CV и RDW-SD.</li>
+        <li>Для страниц с цветными шкалами: норма берётся из чисел над шкалой.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="catalog">
+  <div class="sec-head">
+    <h2>Справочник маркеров</h2>
+    <p class="muted">Файл со списком анализов, к которому сервис приводит все названия. Используется в трёх местах: список названий вставляется в промпт как подсказка, по нему проверяются выдумки (шаг 7) и к нему приводятся названия в ответе (шаг 8).</p>
+  </div>
+  <div class="stats" style="margin-bottom:14px">
+    <div class="stat"><strong>290</strong><span>анализов</span></div>
+    <div class="stat"><strong>869</strong><span>вариантов написания</span></div>
+    <div class="stat"><strong>29</strong><span>без единиц по природе</span></div>
+    <div class="stat"><strong>142</strong><span>без внутреннего ID</span></div>
+  </div>
+  <div class="two">
+    <div class="card">
+      <h3>Что хранится по каждому анализу</h3>
+      <ul>
+        <li><b>Каноническое название</b>, именно оно попадает в ответ.</li>
+        <li><b>Варианты написания</b>, как их пишут разные лаборатории: «АлАТ», «ALT», «АЛТ».</li>
+        <li><b>Единицы.</b> Список означает известные единицы, пустой список означает, что их ещё не внесли, а отдельная пометка означает, что у анализа единиц не бывает (индексы, генотипы).</li>
+        <li><b>Внутренний ID</b> анализа в системе Bioniq.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Как название из PDF находит пару</h3>
+      <ul>
+        <li>Название чистится: регистр, ё → е, похожие латинские и русские буквы, скобки и тире.</li>
+        <li>Если оно точно совпало с каким-то вариантом написания, пара найдена.</li>
+        <li>Иначе похожесть считается со всеми вариантами:</li>
+      </ul>
+      <div class="formula">0,6 × общие слова + 0,4 × похожесть по буквам ≥ 0,60</div>
+      <ul>
+        <li>Если два разных анализа набрали почти поровну (разница ≤ 0,02), решают единицы. Если и они не помогают, название не трогается.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- FINDINGS -->
+<section id="findings">
+  <div class="sec-head">
+    <h2>Что стоит знать</h2>
+    <p class="muted">Заметил при чтении кода. Это не обязательно ошибки, но их стоит проверить с разработчиками.</p>
+  </div>
+  <div class="find">
+    <div class="card"><h3>rpm_id клиенту не отдаётся</h3><p>ID анализа вычисляется, но при сохранении в базу его намеренно вырезают (<span class="mono">store.py</span>, <span class="mono">mark_done</span>). К тому же у 142 из 290 анализов в справочнике rpm_id пустой.</p></div>
+    <div class="card"><h3>Кэш не знает о версии промпта</h3><p>Повторная отправка уже разобранного файла вернёт старый результат, даже если промпт или модель с тех пор обновили. Обновить можно только через <code>DELETE /v1/extract/{job_id}</code>.</p></div>
+    <div class="card"><h3>Кэш общий для всех request_id</h3><p>Если тот же PDF пришлёт другой запрос, вернётся задача с первоначальным <code>request_id</code>.</p></div>
+    <div class="card"><h3>Одна страница валит весь документ</h3><p>Ошибка на любой странице переводит всю задачу в <code>failed</code>, результаты остальных страниц теряются.</p></div>
+    <div class="card"><h3>Сканы без защиты от выдумок</h3><p>Проверка «есть ли это число в тексте PDF» работает только при наличии текстового слоя.</p></div>
+    <div class="card info"><h3>Мёртвый код</h3><p>Папка <span class="mono">app/pdf/</span> и файлы <span class="mono">rpm_ids_original.json</span>, <span class="mono">rpm_ids_extended.json</span> нигде не используются.</p></div>
+    <div class="card info"><h3>Главная боль: скорость</h3><p>Каждая страница означает отдельный тяжёлый запрос. В планах гибрид: страницы с нормальным текстом отдавать лёгкой текстовой модели Qwen2.5-3B (уже поднята), а «зрение» оставить для сканов и графиков. В коде этого пока нет.</p></div>
+  </div>
+</section>
+</div>
+
+</body>
+</html>
